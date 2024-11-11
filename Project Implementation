@@ -1,0 +1,30 @@
+**Task 1**-Creating a Compute Engine template
+1. In the Cloud Console, navigated to Compute Engine > Instance Templates. Clicked Create an instance template.
+2. Used the default values except for the following:
+Machine configuration:
+Series: E2
+Machine Type: e2-micro (2 vCPU, 1GB memory)
+Access scopes:
+
+Set access for each API
+Compute Engine: Read Only
+Firewall:
+
+Allow HTTP traffic
+Allow HTTPs traffic
+3. Clicked Advanced Options. Clicked Management. In Automation > Startup script window, wrote in the following script:
+apt-get -y update
+apt-get -y install git
+apt-get -y install virtualenv
+git clone --depth 1 https://github.com/GoogleCloudPlatform/python-docs-samples
+cd python-docs-samples/iap
+virtualenv venv -p python3
+source venv/bin/activate
+pip install -r requirements.txt
+cat example_gce_backend.py |
+sed -e "s/YOUR_BACKEND_SERVICE_ID/$(gcloud compute backend-services describe my-backend-service --global--format="value(id)")/g" |
+    sed -e "s/YOUR_PROJECT_ID/$(gcloud config get-value project | tr -cd "[0-9]")/g" > real_backend.py
+gunicorn real_backend:app -b 0.0.0.0:80
+4. Clicked create to create the template after updating the values
+
+**Task2**
