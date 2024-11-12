@@ -27,4 +27,135 @@ sed -e "s/YOUR_BACKEND_SERVICE_ID/$(gcloud compute backend-services describe my-
 gunicorn real_backend:app -b 0.0.0.0:80
 4. Clicked create to create the template after updating the values
 
-**Task2**
+**Task2**-Creating a Health Check
+1. In the Cloud Console, navigated to Compute Engine > Health Checks. Clicked the Create Health Check button.
+2. On the Create a Health Check page, provided the following information in the form:
+Name:        my-health-check
+Protocol:    HTTP
+3. Clicked Create.
+
+**Task3**-Creating a Managed Instance Group
+1. In the Cloud Console, navigated to Compute Engine > Instance Groups. Clicked Create instance group.
+Kept the default values except for the following:
+Name: my-managed-instance-group.
+Instance template: Select the instance template you created in Step 1.
+Location: Multiple zones.
+Region: REGION
+Number of instances: To change the number of instances, you must first turn off autoscaling.
+Autoscaling mode: Off: Do not autoscale.
+Autohealing: select the Health Check dropdown, then select the health check created in the previous section my-health-check.
+2. After updating values, clicked Create to create the Managed Instance Group (MIG).
+
+**Task4**-Getting a domain name and certificate
+1. First, created a private key and certificate by: 
+Created a new private key with RSA-2048 encryption in the PEM format using the following OpenSSL command:
+# openssl genrsa -out PRIVATE_KEY_FILE 2048
+2. Created an OpenSSL configuration file. Named the file ssl_config and used the following configuration.
+[req]
+default_bits = 2048
+req_extensions = extension_requirements
+distinguished_name = dn_requirements
+prompt = no
+
+[extension_requirements]
+basicConstraints = CA:FALSE
+keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+
+[dn_requirements]
+countryName = US
+stateOrProvinceName = CA
+localityName = Mountain View
+0.organizationName = Cloud
+organizationalUnitName = Example
+commonName = Test
+3. Run the following OpenSSL command to create a certificate signing request (CSR) file: 
+openssl req -new -key PRIVATE_KEY_FILE \
+ -out CSR_FILE \
+ -config ssl_config
+4. To manage my own CA, or to create a self-signed certificate for testing, I use the following OpenSSL command:
+openssl x509 -req \
+ -signkey PRIVATE_KEY_FILE \
+ -in CSR_FILE \
+ -out CERTIFICATE_FILE.pem \
+ -extfile ssl_config \
+ -extensions extension_requirements \
+ -days 365
+5. Next was creating a self-managed SSL certificate resource. To create a global SSL certificate, I run the following code:
+gcloud compute ssl-certificates create my-cert \
+ --certificate=CERTIFICATE_FILE.pem \
+ --private-key=PRIVATE_KEY_FILE \
+ --global
+
+**Task5**-Creating a load balancer
+1. In Cloud Console, went to the Network Services > Create a load balancer page and clicked Create a Load Balancer.
+2. Selected Application Load Balancer (HTTP/HTTPS) and Next. Selected Public facing (external) and Next.
+3. Selected Best for global workloads and Next. Selected Global external Application Load Balancer and Next.
+4. Selected Configure. On the Create global external Application Load Balancer page that appeared, enter name as my-load-balancer for the load balancer.
+5. Clicked Backend configuration, then selected Backend services & backend buckets > Create a backend service.
+6. On the Create backend service panel, in the Name box, entered my-backend-service.
+7. Under New backend, used the default values except for the following:
+Instance group: my-managed-instance-group
+Port: 80
+Unchecked Enable Cloud CDN under the Cloud CDN section before proceeding.
+8. Under Health check, selected my-health-check. Clicked Create after updating values. Clicked Routing rules to load the default values. 
+9. Clicked Frontend configuration. Used the default values except for the following:
+Protocol: HTTPS (includes HTTP/2 and HTTP/3)
+IP address: click Create IP address
+10. Entered a Name to associate with the new static IP address.
+11. Clicked Reserve to reserve the static IP address. Certificate: my-cert
+12. After frontend configuration values, Clicked Done. 
+13. Under Create global external Application Load Balancer, clicked Create. The Load balancing page appeared and new load balancer was created in the list of load balancers.
+14. After creating the new load balancer, clicked the name of the load balancer and note the external IP address under Details > Frontend. 
+Restart your VMs
+To correctly authenticate requests from IAP, I restart the VMs in my Managed Instance Groups by following the steps below:
+15. In the Cloud Console, went to the Compute Engine > Instance groups page. Clicked my-managed-instance-group.
+16. On the top of the instance group details that appeared, clicked Restart/Replace VMs.
+17. On the Restart/replace VMs in my-managed-instance-group page that appeared, set the following values:
+Operation: Restart
+Maximum unavailable instances: 3 instances
+Minimum wait time: 0 s
+After updating values, clicked Restart VMs.
+Note: VM instance may take 10-15 min to configure successfully.
+
+**Task6**-Setting up Identity Aware Proxy
+1. In this section,  I configure my firewall to block access to the underlying VMs and only allow access through IAP by:
+2. Went to the Cloud Console VPC network > Firewall rules. Selected the checkbox next to the following rules: default-allow-internal
+3. Clicked Delete and selected delete again to confirm it. Clicked Create firewall rule and set the following values:
+Name: allow-iap-traffic
+Targets: All instances in the network
+Source IPv4 ranges (press Enter after you paste each value in the box):
+130.211.0.0/22
+35.191.0.0/16
+Protocols and ports:
+Specified protocols and ports
+select tcp and enter 80, 78
+After updating values, clicked Create.
+
+Set up IAP
+To set up IAP for my project, I followed the steps below:
+4. In the Cloud Console, went to the Security > Identity-Aware Proxy page and selected my project for which I enabled IAP. Clicked Enable API.
+I was prompted to configure my project's OAuth consent screen, and I completed it through the following process:
+a. Went to the OAuth consent screen and selected External as User Type. Clicked Create.
+b. Under Support email, selected the email address I wanted to display as a public contact. 
+c. Entered the Application name I wanted to display. Entered the same email address in the Developer contact information.
+d. Clicked Save and Continue three times and selected Back to Dashboard.
+
+5. To change information on the OAuth consent screen later, such as the product name or email address, I did the following:
+6. Went TO THE IDENTITY-AWARE PROXY PAGE and selected a project. Clicked Go to Identity-Aware Proxy. Next to my-backend-service, toggled the on/off switch in the IAP column.
+7. In the Turn on IAP window that appears, selected the checkbox next to "I have read the configuration requirements and configured my Compute Engine resource according to documentation."
+8. Clicked Turn on.
+
+Next thing I did was to Add principals to the access list of my project
+9. On the IAM & admin > Identity-Aware Proxy page, selected the my-backend-service checkbox. Clicked Add Principal.
+Entered the following to grant access to yourself.
+New Principals: Entered my project ID in the cloud console
+Role: IAP-secured Web App User
+10. Clicked Save.
+
+**Task 7**-Testing the Identity Aware Proxy
+In this section, I test for the IAP to make sure it was successful. 
+1. Went to the Network Services > Load balancing page and selected Frontends.
+2. Selected the Forwarding rule.
+3. Run the following curl command to hit the external IP address. 
+# curl -kvi https://Enter the ip from your load balancer here
+I saw an IAP generated response that is true—this meant I had successfully configured IAP for my GCE Instance.
